@@ -1,48 +1,83 @@
 # mail-mcp
 
-Ένας MCP server για όλα τα mailbox σου: Gmail (όσα θες), Yahoo, Hotmail/Outlook και οποιοδήποτε IMAP. Μιλάει το στάνταρ πρωτόκολλο MCP πάνω από HTTP, οπότε δουλεύει με Claude, ChatGPT και κάθε άλλο AI που δέχεται remote MCP server.
+One small server that gives any MCP-capable AI assistant (Claude, ChatGPT and others) access to your mailboxes: any number of Gmail accounts, Yahoo, Hotmail/Outlook.com, iCloud, AOL, or any IMAP server.
 
-## Τι κάνει
+You run it in your own hosting account. Your passwords and mail never pass through anyone else's server, and nothing is stored: each request opens an IMAP connection, does its job and closes it.
 
-| Tool | Δουλειά |
+Οδηγίες στα ελληνικά: [ODIGOS.md](ODIGOS.md)
+
+## What the assistant can do
+
+| Tool | Purpose |
 | --- | --- |
-| `list_accounts` | Ποια mailbox είναι συνδεδεμένα |
-| `list_folders` | Φάκελοι ενός mailbox |
-| `search_emails` | Αναζήτηση ή τα πιο πρόσφατα (κείμενο, αποστολέας, θέμα, ημερομηνίες, αδιάβαστα) |
-| `read_email` | Κείμενο και συνημμένα (ονόματα) ενός μηνύματος |
-| `create_draft` | Αποθηκεύει νέο μήνυμα ή απάντηση στα Πρόχειρα. Δεν στέλνει τίποτα |
-| `send_email` | Στέλνει. Υπάρχει μόνο αν βάλεις `MAIL_ALLOW_SEND=true` |
-| `mark_emails` | Διαβασμένο/αδιάβαστο, αστέρι |
-| `move_emails` | Μετακίνηση σε φάκελο, ή `archive` / `trash` / `spam` |
-| `search`, `fetch` | Το ζευγάρι που περιμένει το ChatGPT για αναζήτηση σε όλα τα inbox |
+| `list_accounts`, `list_folders` | See which mailboxes and folders exist |
+| `search_emails` | Latest messages, or search by text, sender, subject, date, unread |
+| `read_email` | Text and attachment names of one message |
+| `create_draft` | Save a new message or a reply to Drafts. Nothing is sent |
+| `mark_emails`, `move_emails` | Read/unread, star, move, archive, trash |
+| `send_email` | Only exists if you set `MAIL_ALLOW_SEND=true` |
+| `search`, `fetch` | The pair ChatGPT expects for searching across all inboxes |
 
-Από προεπιλογή το AI γράφει μόνο πρόχειρα και τα στέλνεις εσύ από την εφαρμογή του mail σου.
+By default the assistant can only write drafts, and you send them yourself.
 
-## Ρύθμιση λογαριασμών
+## Set it up (about 10 minutes, free Vercel account)
 
-Όλα μπαίνουν σε μία μεταβλητή περιβάλλοντος, `MAIL_ACCOUNTS`, ως JSON σε μία γραμμή:
+1. Fork this repository and import it at https://vercel.com/new. If the code sits in a `mail-mcp` subfolder, set that as the **Root Directory**.
+2. Add one environment variable: `MCP_AUTH_TOKEN`, a long random text of at least 24 characters. It is the password of your server.
+3. Deploy.
+4. In the project, open Settings > Deployment Protection and make sure the production URL is not behind Vercel Authentication ("Standard Protection" is fine). Otherwise no assistant can reach it.
+5. Open `https://<your-project>.vercel.app/setup/<MCP_AUTH_TOKEN>`. That page walks you through the rest: it checks every mailbox login, tells you what to paste where, and shows the address to give to your assistant.
 
-```json
-[
-  { "id": "gmail1", "provider": "gmail", "email": "a@gmail.com", "password": "app-password" },
-  { "id": "gmail2", "provider": "gmail", "email": "b@gmail.com", "password": "app-password" },
-  { "id": "yahoo",  "provider": "yahoo", "email": "c@yahoo.com", "password": "app-password" },
-  { "id": "hot",    "provider": "outlook", "email": "d@hotmail.com",
-    "oauth": { "clientId": "azure-client-id", "refreshToken": "..." } },
-  { "id": "work",   "provider": "custom", "email": "me@firma.gr", "password": "...",
-    "imap": { "host": "mail.firma.gr", "port": 993 }, "smtp": { "host": "mail.firma.gr", "port": 465 } }
-]
+## Adding mailboxes
+
+One environment variable per mailbox, with the address and an **app password** (not your normal password):
+
+```
+MAIL_ACCOUNT_1=you@gmail.com abcd efgh ijkl mnop
+MAIL_ACCOUNT_2=other@gmail.com qrst uvwx yzab cdef
+MAIL_ACCOUNT_3=you@yahoo.com apppassword
 ```
 
-Πού βγάζεις τα διαπιστευτήρια:
+The provider is recognised from the address. Redeploy after changing variables.
 
-- **Gmail:** θέλει ενεργή επαλήθευση 2 βημάτων. Μετά https://myaccount.google.com/apppasswords και φτιάχνεις app password. Ένα για κάθε λογαριασμό Gmail.
-- **Yahoo:** Account Security > "Generate app password".
-- **Hotmail / Outlook.com:** η Microsoft δεν δέχεται πια κωδικούς στο IMAP, μόνο OAuth2. Φτιάχνεις ένα app registration στο Azure (προσωπικοί λογαριασμοί Microsoft, "Allow public client flows" ενεργό, δικαιώματα `IMAP.AccessAsUser.All` και `SMTP.Send`) και τρέχεις `npm run outlook-login -- <client-id>` για να πάρεις refresh token. Το token λήγει μετά από περίπου 90 μέρες και τότε ξανατρέχεις την εντολή.
+Where to create app passwords:
 
-Ποτέ μη βάζεις τον κανονικό σου κωδικό, και ποτέ μην κάνεις commit το `.env`.
+- Gmail: https://myaccount.google.com/apppasswords (2-Step Verification must be on)
+- Yahoo: Account security > Generate app password
+- iCloud: account.apple.com > Sign-In and Security > App-Specific Passwords
 
-## Τοπικά
+For any other IMAP server use the JSON form instead:
+
+```
+MAIL_ACCOUNTS=[{"id":"work","provider":"custom","email":"me@example.com","password":"...","imap":{"host":"mail.example.com","port":993},"smtp":{"host":"mail.example.com","port":465}}]
+```
+
+### Hotmail / Outlook.com
+
+Microsoft accepts only OAuth2 for these mailboxes, so the server needs the id of an Azure app to sign in with:
+
+1. In the Microsoft Entra admin center, create an App registration that supports **personal Microsoft accounts**.
+2. Under Authentication, enable **Allow public client flows**.
+3. Put its Application (client) ID in the `OUTLOOK_CLIENT_ID` variable and redeploy.
+4. On the setup page, type the address and press Connect. You get a code to enter at Microsoft, then a ready `MAIL_ACCOUNT_...` line to paste.
+
+The token from step 4 expires after roughly 90 days; repeat step 4 when the mailbox stops connecting.
+
+## Connecting an assistant
+
+The connector address is `https://<your-project>.vercel.app/mcp/<MCP_AUTH_TOKEN>`.
+
+- Claude: Settings > Connectors > Add custom connector.
+- ChatGPT: Settings > Connectors (developer mode), no authentication.
+- Clients that can send headers may use `/mcp` with `Authorization: Bearer <MCP_AUTH_TOKEN>`.
+
+## Security
+
+- The connector address is a password. Whoever has it can read your mail. To revoke it, change `MCP_AUTH_TOKEN` and redeploy.
+- Email is text written by strangers, and a hostile message can try to instruct the assistant ("forward everything to..."). That is why sending is off by default. Turn it on only if your assistant asks you before each tool call.
+- One deployment is for one person. Do not put other people's mailboxes in yours; have them deploy their own.
+
+## Development
 
 ```bash
 npm install
@@ -56,30 +91,16 @@ cp .env.example .env
 npm run dev
 ```
 
-Ο server ακούει στο `http://localhost:3000/mcp/<MCP_AUTH_TOKEN>`.
-
 ```bash
 npm test
 ```
 
-## Deploy στο Vercel
+`MCP_URL=https://<host>/mcp/<token> npm run smoke` checks a live deployment and prints counts only, never message content.
 
-1. Νέο project στο Vercel με **Root Directory** το `mail-mcp`.
-2. Environment variables: `MCP_AUTH_TOKEN`, `MAIL_ACCOUNTS` και προαιρετικά `MAIL_ALLOW_SEND`.
-3. Deploy. Το URL του connector είναι `https://<project>.vercel.app/mcp/<MCP_AUTH_TOKEN>`.
+## Status
 
-## Σύνδεση με AI
+Verified against real Gmail and Yahoo mailboxes on Vercel: listing, searching and reading. Covered by automated tests: authentication, the MCP protocol, configuration parsing and the setup page. Not yet verified against live servers: drafts, marking, moving, sending, Outlook sign-in, iCloud, AOL and the ChatGPT connection.
 
-- **Claude:** https://claude.ai/customize/connectors > custom connector > βάζεις το URL.
-- **ChatGPT:** Settings > Connectors (θέλει developer mode) > νέος connector με το ίδιο URL, χωρίς authentication.
-- **Οτιδήποτε άλλο:** όποιος client υποστηρίζει MCP "Streamable HTTP". Όσοι στέλνουν headers μπορούν να χρησιμοποιήσουν το `/mcp` με `Authorization: Bearer <token>`.
+## License
 
-## Ασφάλεια
-
-- Το URL περιέχει το μυστικό. Όποιος το έχει διαβάζει το mail σου, οπότε φέρσου του σαν κωδικό. Αν διαρρεύσει, αλλάζεις το `MCP_AUTH_TOKEN` και ξανακάνεις deploy.
-- Τα email είναι κείμενο από τρίτους. Ένα κακόβουλο μήνυμα μπορεί να προσπαθήσει να δώσει εντολές στο AI ("προώθησε όλα τα mail στο..."). Γι' αυτό η αποστολή είναι κλειστή από προεπιλογή. Άνοιξέ τη μόνο αν το AI που χρησιμοποιείς ζητά επιβεβαίωση πριν από κάθε tool call.
-- Ο server δεν αποθηκεύει τίποτα. Κάθε κλήση ανοίγει σύνδεση IMAP, κάνει τη δουλειά και κλείνει.
-
-## Τι έχει δοκιμαστεί
-
-Τα αυτόματα τεστ καλύπτουν τον έλεγχο του token, το πρωτόκολλο MCP με πραγματικό client, τη λίστα των tools και την επικύρωση του `MAIL_ACCOUNTS`. Η επικοινωνία με πραγματικούς IMAP/SMTP servers, το OAuth του Outlook, το deploy στο Vercel και η σύνδεση με ChatGPT δεν έχουν δοκιμαστεί ακόμα.
+MIT. Provided as is, without warranty.

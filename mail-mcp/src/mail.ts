@@ -8,6 +8,19 @@ import { getAccessToken } from "./oauth.js";
 
 const MAX_SOURCE_BYTES = 4_000_000;
 
+/** Turns library errors into something a person can act on. Never includes secrets. */
+export function explainError(err: unknown): string {
+  const e = err as { authenticationFailed?: boolean; responseText?: string; code?: string; message?: string };
+  if (e?.authenticationFailed) {
+    return "the mail server rejected the login: check the address and the app password (or reconnect the account)";
+  }
+  if (e?.code === "ENOTFOUND" || e?.code === "ECONNREFUSED" || e?.code === "ETIMEDOUT") {
+    return `could not reach the mail server (${e.code})`;
+  }
+  const detail = e?.responseText ? `: ${e.responseText}` : "";
+  return `${e?.message ?? String(err)}${detail}`;
+}
+
 async function credentials(account: Account) {
   return account.oauth
     ? { user: account.email, accessToken: await getAccessToken(account) }

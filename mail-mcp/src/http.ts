@@ -3,6 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { loadConfig, type Config } from "./config.js";
 import { buildServer } from "./server.js";
+import { handleSetup } from "./setup.js";
 
 let cached: Config | undefined;
 
@@ -12,14 +13,14 @@ function sameSecret(a: string, b: string) {
   return timingSafeEqual(ha, hb);
 }
 
-/** The secret may arrive as `Authorization: Bearer`, as /mcp/<token>, or as ?token=. */
+/** The secret may arrive as `Authorization: Bearer`, as /mcp/<token>, /setup/<token>, or ?token=. */
 function presentedToken(req: IncomingMessage): string {
   const header = req.headers.authorization;
   if (header?.toLowerCase().startsWith("bearer ")) return header.slice(7).trim();
   const url = new URL(req.url ?? "/", "http://localhost");
   const fromQuery = url.searchParams.get("token");
   if (fromQuery) return fromQuery;
-  const match = /\/mcp\/([^/?]+)/.exec(url.pathname);
+  const match = /\/(?:mcp|setup)\/([^/?]+)/.exec(url.pathname);
   return match ? decodeURIComponent(match[1]) : "";
 }
 
@@ -57,6 +58,11 @@ export async function handleMcp(req: IncomingMessage, res: ServerResponse) {
 
   if (!sameSecret(presentedToken(req), config.authToken)) {
     return json(res, 401, { error: "unauthorized" });
+  }
+
+  const url = new URL(req.url ?? "/", "http://localhost");
+  if (url.pathname.startsWith("/setup") || url.searchParams.has("setup")) {
+    return handleSetup(req, res, config, url, () => readBody(req));
   }
 
   if (req.method !== "POST") {

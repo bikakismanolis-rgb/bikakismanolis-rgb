@@ -4,7 +4,7 @@ import type { AddressInfo } from "node:net";
 import { after, before, test } from "node:test";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { parseAccounts } from "../src/config.js";
+import { detectProvider, loadConfig, parseAccounts, parseSimpleAccount } from "../src/config.js";
 import { buildServer } from "../src/server.js";
 
 const TOKEN = "test-token-0123456789-abcdefghij";
@@ -103,5 +103,63 @@ test("account config: presets, validation, duplicates", () => {
   assert.throws(() => parseAccounts("not json"), /not valid JSON/);
   assert.throws(() => parseAccounts(JSON.stringify([{ id: "a", provider: "gmail", email: "a@b.co" }])), /exactly one/);
   assert.throws(() => parseAccounts(JSON.stringify([{ id: "a", provider: "custom", email: "a@b.co", password: "x" }])), /custom/);
-  assert.throws(() => parseAccounts(JSON.stringify([ACCOUNTS[0], { ...ACCOUNTS[1], id: "G1" }])), /duplicate/);
+});
+
+test("simple one-line accounts: provider detection, ids, password spaces", () => {
+  assert.equal(detectProvider("a@googlemail.com"), "gmail");
+  assert.equal(detectProvider("a@yahoo.gr"), "yahoo");
+  assert.equal(detectProvider("a@hotmail.co.uk"), "outlook");
+  assert.equal(detectProvider("a@live.com"), "outlook");
+  assert.equal(detectProvider("a@icloud.com"), "icloud");
+  assert.equal(detectProvider("a@firma.gr"), undefined);
+
+  const g = parseSimpleAccount("MAIL_ACCOUNT_1", "  me@gmail.com abcd efgh ijkl mnop ");
+  assert.deepEqual([g.id, g.provider, g.password], ["gmail1", "gmail", "abcdefghijklmnop"]);
+  const y = parseSimpleAccount("MAIL_ACCOUNT_WORK", "me@yahoo.com secret");
+  assert.deepEqual([y.id, y.imap.host], ["work", "imap.mail.yahoo.com"]);
+  const h = parseSimpleAccount("MAIL_ACCOUNT_HOT", "me@hotmail.com token:abc", "client-1");
+  assert.deepEqual([h.oauth?.clientId, h.oauth?.refreshToken, h.password], ["client-1", "abc", undefined]);
+
+  assert.throws(() => parseSimpleAccount("MAIL_ACCOUNT_1", "me@hotmail.com pw"), /setup page/);
+  assert.throws(() => parseSimpleAccount("MAIL_ACCOUNT_1", "me@hotmail.com token:abc"), /OUTLOOK_CLIENT_ID/);
+  assert.throws(() => parseSimpleAccount("MAIL_ACCOUNT_1", "me@firma.gr pw"), /unknown mail provider/);
+  assert.throws(() => parseSimpleAccount("MAIL_ACCOUNT_1", "me@gmail.com"), /must look like/);
+});
+
+test("loadConfig merges both forms, allows zero mailboxes, rejects clashes", () => {
+  const TOKEN_ENV = { MCP_AUTH_TOKEN: TOKEN };
+  assert.equal(loadConfig(TOKEN_ENV).accounts.length, 0);
+  const merged = loadConfig({
+    ...TOKEN_ENV,
+    MAIL_ACCOUNTS: JSON.stringify([ACCOUNTS[2]]),
+    MAIL_ACCOUNT_2: "b@gmail.com pw",
+    MAIL_ACCOUNT_1: "a@gmail.com pw",
+    MAIL_ACCOUNT_EMPTY: " ",
+  });
+  assert.deepEqual(merged.accounts.map((a) => a.id), ["y", "gmail1", "gmail2"]);
+  assert.throws(
+    () => loadConfig({ ...TOKEN_ENV, MAIL_ACCOUNTS: JSON.stringify([ACCOUNTS[0]]), MAIL_ACCOUNT_G1: "a@gmail.com pw" }),
+    /share the id/,
+  );
+  assert.throws(() => loadConfig({ MCP_AUTH_TOKEN: "short" }), /at least 24/);
+});
+
+test("setup page: needs the token, serves locked-down HTML, reports status", async () => {
+  assert.equal((await fetch(`${base}/setup/wrong`)).status, 401);
+  const page = await fetch(`${base}/setup/${TOKEN}`);
+  assert.equal(page.status, 200);
+  assert.match(page.headers.get("content-type") ?? "", /text\/html/);
+  assert.match(page.headers.get("content-security-policy") ?? "", /default-src 'none'/);
+  assert.equal(page.headers.get("cache-control"), "no-store");
+  const html = await page.text();
+  assert.ok(html.includes("MAIL_ACCOUNT_") && !html.includes(TOKEN));
+
+  // Vercel delivers the same request as /api/mcp?token=..&setup=1
+  assert.equal((await fetch(`${base}/api/mcp?token=${TOKEN}&setup=1`)).status, 200);
+  assert.equal((await fetch(`${base}/setup/${TOKEN}?action=nope`)).status, 404);
+
+  // No OUTLOOK_CLIENT_ID in this test server.
+  const start = await fetch(`${base}/setup/${TOKEN}?action=outlook-start`, { method: "POST", body: "{}" });
+  assert.equal(start.status, 400);
+  assert.match(((await start.json()) as { error: string }).error, /OUTLOOK_CLIENT_ID/);
 });

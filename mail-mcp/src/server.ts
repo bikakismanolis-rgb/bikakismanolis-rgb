@@ -11,7 +11,7 @@ function ok(data: unknown) {
 }
 
 function fail(err: unknown) {
-  const message = err instanceof Error ? err.message : String(err);
+  const message = mail.explainError(err);
   return { isError: true, content: [{ type: "text" as const, text: `Error: ${message}` }] };
 }
 
@@ -29,11 +29,11 @@ export function buildServer(config: Config) {
   const ids = config.accounts.map((a) => a.id);
   const accountArg = z
     .string()
-    .describe(`Account id. One of: ${ids.join(", ")}. Use list_accounts to see the addresses.`);
+    .describe(`Account id. One of: ${ids.join(", ") || "(none configured)"}. Use list_accounts to see the addresses.`);
 
   const pick = (id: string): Account => {
     const hit = config.accounts.find((a) => a.id === id.toLowerCase() || a.email === id);
-    if (!hit) throw new Error(`unknown account "${id}". Available: ${ids.join(", ")}`);
+    if (!hit) throw new Error(`unknown account "${id}". Available: ${ids.join(", ") || "none yet"}`);
     return hit;
   };
 
@@ -72,7 +72,7 @@ export function buildServer(config: Config) {
     "list_accounts",
     {
       title: "List mail accounts",
-      description: "Lists the connected mailboxes (Gmail, Yahoo, Outlook/Hotmail, other IMAP) and whether sending is enabled.",
+      description: "Lists the connected mailboxes (Gmail, Yahoo, Outlook/Hotmail, iCloud, other IMAP) and whether sending is enabled.",
       annotations: { readOnlyHint: true },
     },
     () =>
