@@ -2,3 +2,4 @@ numpy
 pandas
 requests
 pytest
+ib_async  # μόνο για το 'run.py live'

@@ -23,7 +23,33 @@ def fetch_symbol(symbol: str, years: int = 20) -> pd.Series:
     return s[~s.index.duplicated(keep="last")].dropna()
 
 
-def load_prices(symbols, refresh: bool = False, max_age_hours: float = 12) -> pd.DataFrame:
+def clean_prices(prices: pd.DataFrame, spike: float = 0.15, max_move: float = 0.25) -> pd.DataFrame:
+    """Διορθώνει τα λάθη των δωρεάν δεδομένων.
+
+    1. Μεμονωμένες λάθος τιμές: άλμα πάνω από 15% που αναιρείται σχεδόν πλήρως την επόμενη μέρα.
+    2. Αλλαγές κλίμακας (π.χ. reverse split που δεν έχει προσαρμοστεί): ημερήσια κίνηση
+       πάνω από 25% δεν έχει συμβεί ποτέ πραγματικά σε αυτά τα προϊόντα, οπότε τη
+       θεωρούμε ασυνέχεια και ξαναχτίζουμε τη σειρά χωρίς αυτήν.
+    Οι πιο πρόσφατες τιμές μένουν ίδιες με τις πραγματικές.
+    """
+    p = prices.copy()
+    for _ in range(3):
+        f = p.ffill()
+        r = f / f.shift(1) - 1
+        round_trip = f.shift(-1) / f.shift(1) - 1
+        bad = (r.abs() > spike) & (round_trip.abs() < r.abs() / 4)
+        if not bad.any().any():
+            break
+        p = p.mask(bad)
+    f = p.ffill()
+    r = f.pct_change(fill_method=None)
+    r = r.mask(r.abs() > max_move, 0.0)
+    growth = (1 + r.fillna(0.0)).cumprod()
+    adj = growth / growth.iloc[-1] * f.iloc[-1]
+    return adj.where(f.notna())
+
+
+def load_prices(symbols, refresh: bool = False, max_age_hours: float = 12, clean: bool = True) -> pd.DataFrame:
     """Επιστρέφει πίνακα τιμών (στήλη ανά σύμβολο). Κατεβάζει ξανά αν η cache είναι παλιά."""
     DATA_DIR.mkdir(exist_ok=True)
     out = {}
@@ -33,4 +59,5 @@ def load_prices(symbols, refresh: bool = False, max_age_hours: float = 12) -> pd
         if refresh or stale:
             fetch_symbol(sym).to_csv(path, header=True)
         out[sym] = pd.read_csv(path, index_col=0, parse_dates=True).iloc[:, 0]
-    return pd.DataFrame(out).sort_index()
+    prices = pd.DataFrame(out).sort_index()
+    return clean_prices(prices) if clean else prices

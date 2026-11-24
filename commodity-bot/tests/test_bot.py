@@ -72,3 +72,23 @@ def test_kill_switch(tmp_path):
     run_cycle(b, p, S)
     assert b.state["halted"] and not b.positions()
     assert run_cycle(b, p, S) == []
+
+
+def test_clean_prices_fixes_bad_ticks_and_rescaling():
+    from cbot.data import clean_prices
+    idx = pd.bdate_range("2020-01-01", periods=60)
+    true = pd.Series(100 * 1.001 ** np.arange(60), index=idx)
+    dirty = true.copy()
+    dirty.iloc[20] *= 1.4          # μεμονωμένη λάθος τιμή
+    dirty.iloc[:40] /= 50          # αλλαγή κλίμακας που δεν έχει προσαρμοστεί
+    out = clean_prices(pd.DataFrame({"X": dirty}))["X"]
+    assert out.iloc[-1] == pytest.approx(true.iloc[-1])
+    assert out.pct_change().abs().max() < 0.01
+    assert out.iloc[0] == pytest.approx(true.iloc[0], rel=0.01)
+
+
+def test_run_cycle_with_external_state(tmp_path):
+    p = make_prices()
+    b = PaperBroker(tmp_path / "s.json", start_cash=10_000)
+    state = {"peak_equity": 10_000, "halted": True}
+    assert run_cycle(b, p, S, state) == [] and not b.positions()

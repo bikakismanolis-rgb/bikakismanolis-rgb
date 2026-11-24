@@ -12,10 +12,14 @@ def equity(broker: Broker, last: pd.Series) -> float:
     return broker.cash() + sum(n * last[sym] for sym, n in broker.positions().items())
 
 
-def run_cycle(broker: Broker, prices: pd.DataFrame, s: Settings) -> list:
-    """Επιστρέφει λίστα με (σύμβολο, τεμάχια, τιμή) που εκτελέστηκαν."""
+def run_cycle(broker: Broker, prices: pd.DataFrame, s: Settings, state: dict = None) -> list:
+    """Επιστρέφει λίστα με (σύμβολο, τεμάχια, τιμή) που στάλθηκαν.
+
+    state: λεξικό με peak_equity και halted (το kill switch). Αν δεν δοθεί,
+    χρησιμοποιείται η κατάσταση του ίδιου του broker (paper).
+    """
     last = prices.ffill().iloc[-1]
-    state = broker.state
+    state = broker.state if state is None else state
     eq = equity(broker, last)
     state["peak_equity"] = max(state["peak_equity"], eq)
     done = []
@@ -48,7 +52,7 @@ def run_cycle(broker: Broker, prices: pd.DataFrame, s: Settings) -> list:
     for sym, d in sorted(deltas.items(), key=lambda kv: kv[1]):
         px = last[sym]
         if d > 0:
-            affordable = math.floor(broker.cash() / (px * (1 + s.cost_bps / 1e4)))
+            affordable = math.floor(broker.cash() / (px * (1 + max(s.cost_bps / 1e4, 0.006))))
             d = min(d, affordable)
         if d:
             broker.order(sym, d, px)

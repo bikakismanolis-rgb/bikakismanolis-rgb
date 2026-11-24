@@ -1,5 +1,5 @@
-"""Brokers. Το PaperBroker εκτελεί εικονικές εντολές. Ένας πραγματικός broker
-(π.χ. Interactive Brokers) θα υλοποιήσει την ίδια διεπαφή αργότερα."""
+"""Brokers. Το PaperBroker εκτελεί εικονικές εντολές. Ο πραγματικός broker
+(Interactive Brokers) είναι στο ibkr.py και υλοποιεί την ίδια διεπαφή."""
 from abc import ABC, abstractmethod
 from datetime import datetime, timezone
 import json
